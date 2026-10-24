@@ -1,2 +1,7 @@
 /target/
 *.class
+/.classpath
+/.factorypath
+/.project
+/.settings/
+/.idea/
