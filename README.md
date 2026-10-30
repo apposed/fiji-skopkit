@@ -1,4 +1,4 @@
-# skop-fiji
+# fiji-skopkit
 
 [scikit-ops](https://github.com/apposed/scikit-ops) in Fiji.
 
@@ -148,6 +148,6 @@ stops `SkopService` from describing the ops at startup, which is occasionally
 what you want in a test.
 
 Environments land in Appose's shared directory rather than anywhere under a
-Fiji installation, which means **skop-napari and skop-fiji share them**: a
+Fiji installation, which means **napari-skopkit and fiji-skopkit share them**: a
 user who has already paid for the `stardist-tf` build in napari does not pay
 again here.

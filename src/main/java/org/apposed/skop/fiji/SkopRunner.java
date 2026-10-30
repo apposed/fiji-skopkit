@@ -337,7 +337,7 @@ public class SkopRunner implements Closeable {
 	 * <p>
 	 * Appose keys environments by name in its shared environments directory,
 	 * so several ops declaring the same env ID land on the same installation
-	 * -- and so do skop-napari and this front end. A user who has already paid
+	 * -- and so do napari-skopkit and this front end. A user who has already paid
 	 * for the {@code stardist-tf} build in napari does not pay again here.
 	 *
 	 * @param envId the environment's ID, naming {@code envs/<id>/}.

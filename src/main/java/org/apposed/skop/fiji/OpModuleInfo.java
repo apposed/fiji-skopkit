@@ -49,7 +49,7 @@ import org.scijava.module.MutableModuleItem;
  * This is the class that makes the headline true: an op gets its own menu
  * entry, its own generated dialog, a place in the search bar for free, and a
  * recordable macro call, because SciJava registers modules at runtime and does
- * not need a static manifest. skop-napari settled for a single panel with a
+ * not need a static manifest. napari-skopkit settled for a single panel with a
  * picker inside it precisely because npe2 does; that compromise is not needed
  * here.
  * <p>

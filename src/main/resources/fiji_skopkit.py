@@ -1,22 +1,22 @@
 """scikit-ops' ops as Python functions, for Fiji's Jython scripts.
 
-    from skop_fiji import skops
+    from fiji_skopkit import skop
 
-    labels = skops.segment.cellpose4(imp)
-    labels = skops.segment.cellpose4(imp, diameter=30, model="cpsam")
+    labels = skop.segment.cellpose4(imp)
+    labels = skop.segment.cellpose4(imp, diameter=30, model="cpsam")
 
-    result = skops.segment.instanseg(imp, target="nuclei")
+    result = skop.segment.instanseg(imp, target="nuclei")
     result.nuclei
-    nuclei, cells = skops.segment.instanseg(imp)
+    nuclei, cells = skop.segment.instanseg(imp)
 
-``skops.segment.cellpose4(imp, diameter=30)`` is
+``skop.segment.cellpose4(imp, diameter=30)`` is
 ``Skop.run("segment.cellpose4", imp, {"diameter": 30})`` and nothing more:
 the first argument is the op's image, everything else goes by name, and the
 op runs exactly as it does from its menu entry. An op with several outputs
 returns them by name, and they unpack in order, as a Python op's NamedTuple
 does.
 
-``dir(skops)`` lists the namespaces and ``dir(skops.segment)`` the ops in one. A
+``dir(skop)`` lists the namespaces and ``dir(skop.segment)`` the ops in one. A
 misspelt name or parameter raises ValueError, saying what was probably
 meant; an op that fails raises RuntimeError with the worker's message.
 """
@@ -25,7 +25,7 @@ from java.lang import IllegalArgumentException, IllegalStateException
 from java.util import HashMap, Map
 from org.apposed.skop.fiji import Skop
 
-__all__ = ["skops"]
+__all__ = ["skop"]
 
 
 def _skop():
@@ -85,11 +85,11 @@ class Op(object):
         named = HashMap()
         for key, value in kwargs.items():
             named.put(key, value)
-        skop = _skop()
+        current = _skop()
         if args:
-            result = _call(skop.run, self.__name__, args[0], named)
+            result = _call(current.run, self.__name__, args[0], named)
         else:
-            result = _call(skop.run, self.__name__, named)
+            result = _call(current.run, self.__name__, named)
         return Outputs(result) if isinstance(result, Map) else result
 
     def __repr__(self):
@@ -97,7 +97,7 @@ class Op(object):
 
 
 class Namespace(object):
-    """The ops in one namespace: ``skops.segment``."""
+    """The ops in one namespace: ``skop.segment``."""
 
     def __init__(self, name):
         self._name = name
@@ -123,7 +123,7 @@ class Namespace(object):
 
 
 class Ops(object):
-    """Every op, by namespace: ``skops.segment.cellpose4``."""
+    """Every op, by namespace: ``skop.segment.cellpose4``."""
 
     def _namespaces(self):
         return sorted(set(name.split(".")[0] for name in _skop().names()))
@@ -143,4 +143,4 @@ class Ops(object):
         return "<scikit-ops: %s>" % ", ".join(self._namespaces())
 
 
-skops = Ops()
+skop = Ops()

@@ -125,7 +125,7 @@ public final class Axes {
 	 * The axis labels an image carries, in ImgLib2 order.
 	 * <p>
 	 * An {@code ImgPlus} <em>says</em> what its axes are, which is the whole
-	 * difference from the napari front end: skop-napari spends a module
+	 * difference from the napari front end: napari-skopkit spends a module
 	 * working out a layer's axes from metadata, xarray dims, NGFF axes and
 	 * {@code rgb}, and leaves unnamed whatever none of those settle. Here the
 	 * answer is simply read.

@@ -67,7 +67,7 @@ import org.scijava.module.ModuleInfo;
  * put into a one-line status field is a traceback thrown away.
  * <p>
  * There is no thread plumbing, because SciJava already runs modules off the
- * EDT. This is the whole of skop-napari's {@code _run.py}, deleted.
+ * EDT. This is the whole of napari-skopkit's {@code _run.py}, deleted.
  *
  * @author Curtis Rueden
  */

@@ -39,7 +39,7 @@ import org.scijava.table.Table;
  * What each of skop's semantic roles becomes in Fiji.
  * <p>
  * The only Fiji-specific part of the front end, and the counterpart of
- * skop-napari's {@code _roles.py}. A role says what a value <em>means</em>
+ * napari-skopkit's {@code _roles.py}. A role says what a value <em>means</em>
  * beyond what its type says -- every op passes arrays around, and only the
  * role distinguishes a picture from a segmentation from a set of
  * coordinates -- so this is where that meaning turns into a Java type.

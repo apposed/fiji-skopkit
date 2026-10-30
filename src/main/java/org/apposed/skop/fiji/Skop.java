@@ -87,7 +87,7 @@ public class Skop extends AbstractService implements SciJavaService {
 	@Parameter
 	private ConvertService convert;
 
-	/** The most recent one, for code that has no context to ask: skop_fiji.py. */
+	/** The most recent one, for code that has no context to ask: fiji_skopkit.py. */
 	private static volatile Skop current;
 
 	// -- Service methods --
@@ -106,7 +106,7 @@ public class Skop extends AbstractService implements SciJavaService {
 
 	/**
 	 * The running Fiji's {@code Skop}, for code with no SciJava context to ask
-	 * -- the {@code skop_fiji} Jython module, which a script imports rather
+	 * -- the {@code fiji_skopkit} Jython module, which a script imports rather
 	 * than receives as a parameter.
 	 *
 	 * @throws IllegalStateException if no context has started one.
