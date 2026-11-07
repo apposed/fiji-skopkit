@@ -1,3 +1,5 @@
+[![Build Status](https://github.com/apposed/fiji-skopkit/actions/workflows/build.yml/badge.svg)](https://github.com/apposed/fiji-skopkit/actions/workflows/build.yml)
+
 # fiji-skopkit
 
 [scikit-ops](https://github.com/apposed/scikit-ops) in Fiji.
