@@ -325,7 +325,7 @@ public class SkopService extends AbstractService implements SciJavaService {
 		// many times a second.
 		if (!title.equals(lastBuildTitle)) {
 			lastBuildTitle = title;
-			log.info("scikit-ops:   " + title);
+			say("scikit-ops:   " + title);
 		}
 		org.scijava.task.Task task = building.get();
 		if (task != null) {
@@ -376,6 +376,46 @@ public class SkopService extends AbstractService implements SciJavaService {
 	/** The build phase last logged, so each is logged once. */
 	private volatile String lastBuildTitle;
 
+	/**
+	 * Says something where a Fiji user looks while a build runs: the Log
+	 * window, as well as the log, which Fiji shows only in its Console.
+	 * <p>
+	 * ImageJ 1.x is reached by reflection, so this jar does not depend on it;
+	 * without it (headless, or a plain SciJava application) the log alone is
+	 * used.
+	 */
+	private void say(String message) {
+		log.info(message);
+		try {
+			Class.forName("ij.IJ").getMethod("log", String.class)
+				.invoke(null, message);
+		}
+		catch (ReflectiveOperationException | LinkageError e) {
+			// No ImageJ 1.x; the log will do.
+		}
+	}
+
+	/**
+	 * Every half minute of a build, a line saying it is still going. pixi can
+	 * download for minutes without starting a new phase, and silence for that
+	 * long looks like a hang.
+	 */
+	private final java.util.concurrent.ScheduledExecutorService heartbeat =
+		java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
+			Thread thread = new Thread(r, "scikit-ops build heartbeat");
+			thread.setDaemon(true);
+			return thread;
+		});
+
+	/** The heartbeat of the build in flight; builds are serialized. */
+	private volatile java.util.concurrent.ScheduledFuture<?> beat;
+
+	/** 45 s, or 3 min 10 s. */
+	private static String elapsed(long seconds) {
+		if (seconds < 60) return seconds + " s";
+		return seconds / 60 + " min " + seconds % 60 + " s";
+	}
+
 	private class BuildTasks implements SkopRunner.BuildListener {
 
 		@Override
@@ -386,12 +426,23 @@ public class SkopService extends AbstractService implements SciJavaService {
 			buildStarts.put(envId, System.currentTimeMillis());
 			lastBuildTitle = null;
 			if (runner.isBuilt(envId)) {
-				log.info("scikit-ops: using the " + envId + " environment, " +
+				say("scikit-ops: using the " + envId + " environment, " +
 					"built earlier");
 			}
 			else {
-				log.info("scikit-ops: building the " + envId + " environment; " +
-					"the first time, this downloads and can take minutes");
+				say("scikit-ops: building the " + envId + " environment. This " +
+					"happens once, downloads packages, and can take several minutes.");
+				long start = buildStarts.get(envId);
+				beat = heartbeat.scheduleAtFixedRate(() -> {
+					long seconds = (System.currentTimeMillis() - start) / 1000;
+					String phase = lastBuildTitle == null ? "" : " (" + lastBuildTitle + ")";
+					say("scikit-ops:   still building the " + envId + " environment, " +
+						elapsed(seconds) + " so far" + phase);
+					if (status != null) {
+						status.showStatus("Building scikit-ops environment: " + envId +
+							", " + elapsed(seconds));
+					}
+				}, 30, 30, java.util.concurrent.TimeUnit.SECONDS);
 			}
 			if (tasks == null) return;
 			org.scijava.task.Task task =
@@ -403,6 +454,9 @@ public class SkopService extends AbstractService implements SciJavaService {
 
 		@Override
 		public void finished(String envId, Exception error) {
+			java.util.concurrent.ScheduledFuture<?> running = beat;
+			beat = null;
+			if (running != null) running.cancel(false);
 			Long start = buildStarts.remove(envId);
 			long seconds = start == null ? 0 :
 				(System.currentTimeMillis() - start + 500) / 1000;
@@ -410,13 +464,13 @@ public class SkopService extends AbstractService implements SciJavaService {
 				// Said only after a real build: a check of a built environment
 				// has already been announced, and "ready after 0 s" is noise.
 				if (seconds > 2) {
-					log.info("scikit-ops: the " + envId + " environment is ready, " +
-						"after " + seconds + " s");
+					say("scikit-ops: the " + envId + " environment is ready, " +
+						"after " + elapsed(seconds));
 				}
 			}
 			else {
-				log.info("scikit-ops: preparing the " + envId + " environment " +
-					"failed after " + seconds + " s: " + error.getMessage());
+				say("scikit-ops: preparing the " + envId + " environment " +
+					"failed after " + elapsed(seconds) + ": " + error.getMessage());
 			}
 			org.scijava.task.Task task = building.getAndSet(null);
 			if (task == null) return;
