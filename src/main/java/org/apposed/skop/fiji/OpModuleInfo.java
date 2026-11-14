@@ -216,17 +216,16 @@ public class OpModuleInfo extends DefaultMutableModuleInfo {
 	private MenuPath menuPath() {
 		List<String> parts = new ArrayList<>();
 		parts.add(MENU_ROOT);
-		parts.add(MENU_GROUP);
+		// Another collection's ops go under its own name, Plugins ▸ biapy-ops,
+		// rather than mixed into scikit-ops' namespaces.
+		parts.add(OpCollection.menuGroup(op.module()));
 		for (String segment : namespace()) parts.add(Params.label(segment));
 		parts.add(displayName());
 		return new MenuPath(String.join(">", parts));
 	}
 
 	private String[] namespace() {
-		String module = op.module();
-		String prefix = "skop.ops.";
-		if (!module.startsWith(prefix)) return new String[0];
-		return module.substring(prefix.length()).split("\\.");
+		return OpCollection.namespace(op.module());
 	}
 
 	/** The op's own name, as a menu entry should read it. */

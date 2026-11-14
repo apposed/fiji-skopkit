@@ -69,6 +69,11 @@ import org.scijava.service.Service;
  * alone works when no other op shares it, and the full
  * {@code skop.ops.segment.cellpose4:cellpose4} always does.
  * <p>
+ * An op from another collection carries that collection's package first,
+ * always: {@code biapy_ops.predict.bmz}, never {@code predict.bmz}. A
+ * script then says whose op it runs, so the people who made it get the
+ * credit, and two collections never fight over a name.
+ * <p>
  * One output comes back as itself; several come back as a map from output
  * name to value, so {@code result.nuclei} works in Groovy and
  * {@code result["nuclei"]} in Jython. The op runs through
@@ -135,25 +140,59 @@ public class Skop extends AbstractService implements SciJavaService {
 	 */
 	public OpModuleInfo op(String name) {
 		Map<String, OpModuleInfo> all = byShortName();
-		String wanted = name.startsWith("skop:") ? name.substring(5) : name;
-		if (all.containsKey(wanted)) return all.get(wanted);
+		Map<String, OpSpec> specs = new TreeMap<>();
+		for (Map.Entry<String, OpModuleInfo> entry : all.entrySet()) {
+			specs.put(entry.getKey(), entry.getValue().op());
+		}
+		return all.get(find(name, specs));
+	}
 
-		List<OpModuleInfo> matches = new ArrayList<>();
-		for (OpModuleInfo info : all.values()) {
-			OpSpec op = info.op();
-			if (op.name().equals(wanted) || op.function().equals(wanted)) {
-				matches.add(info);
+	/**
+	 * Which op a script means, among ops by their script names: the name
+	 * {@link #op} returns. A collection's op is found only by its branded
+	 * name, {@code biapy_ops.predict.bmz}, or its ID; scikit-ops' own also by
+	 * {@code threshold.otsu} or {@code otsu}.
+	 *
+	 * @throws IllegalArgumentException naming what was probably meant.
+	 */
+	static String find(String name, Map<String, OpSpec> ops) {
+		String wanted = name.startsWith("skop:") ? name.substring(5) : name;
+		if (ops.containsKey(wanted)) return wanted;
+		for (Map.Entry<String, OpSpec> entry : ops.entrySet()) {
+			if (entry.getValue().name().equals(wanted)) return entry.getKey();
+		}
+
+		// The name without its brand: scikit-ops' own ops answer to it; a
+		// collection's do not, so that a script always says whose op it runs.
+		List<String> own = new ArrayList<>();
+		List<String> branded = new ArrayList<>();
+		for (Map.Entry<String, OpSpec> entry : ops.entrySet()) {
+			String key = entry.getKey();
+			OpSpec op = entry.getValue();
+			boolean collection = OpCollection.of(op.module()) != null;
+			String bare = collection ? key.substring(key.indexOf('.') + 1) : key;
+			if (bare.equals(wanted) || op.function().equals(wanted)) {
+				(collection ? branded : own).add(key);
 			}
 		}
-		if (matches.size() == 1) return matches.get(0);
-		if (matches.size() > 1) {
-			List<String> names = new ArrayList<>();
-			for (OpModuleInfo info : matches) names.add(shortName(info.op()));
+		if (own.size() == 1) return own.get(0);
+		if (own.size() > 1) {
+			own.addAll(branded);
 			throw new IllegalArgumentException("More than one op is called '" +
-				name + "': " + String.join(", ", names) + ". Say which.");
+				name + "': " + String.join(", ", own) + ". Say which.");
+		}
+		if (branded.size() == 1) {
+			OpCollection collection = OpCollection.of(ops.get(branded.get(0)).module());
+			throw new IllegalArgumentException("'" + name + "' is " +
+				collection.possessive() + " op. Call it with its collection's name, " +
+				branded.get(0) + ", so the script says whose op it runs.");
+		}
+		if (branded.size() > 1) {
+			throw new IllegalArgumentException("More than one collection has an op " +
+				"called '" + name + "': " + String.join(", ", branded) + ". Say which.");
 		}
 		throw new IllegalArgumentException("No op called '" + name + "'." +
-			suggest(wanted, all.keySet()));
+			suggest(wanted, ops.keySet()));
 	}
 
 	/** Runs an op on an image, with every other parameter at its default. */
@@ -185,16 +224,15 @@ public class Skop extends AbstractService implements SciJavaService {
 	}
 
 	/**
-	 * An op's short name: its namespace and its function, as the napari panel
-	 * lists it. {@code skop.ops.segment.cellpose4:cellpose4} is
-	 * {@code segment.cellpose4}.
+	 * An op's name in scripts: its namespace and its function, as the napari
+	 * panel lists it, after its collection's package for an op that is not
+	 * scikit-ops' own. {@code skop.ops.segment.cellpose4:cellpose4} is
+	 * {@code segment.cellpose4}; {@code biapy_ops.predict:bmz} is
+	 * {@code biapy_ops.predict.bmz}.
 	 */
 	public static String shortName(OpSpec op) {
-		String module = op.module();
-		String prefix = "skop.ops.";
-		if (!module.startsWith(prefix)) return op.name();
-		String namespace = module.substring(prefix.length()).split("\\.")[0];
-		return namespace + "." + op.function();
+		String name = OpCollection.scriptName(op.module(), op.function());
+		return name == null ? op.name() : name;
 	}
 
 	// -- Helper methods --

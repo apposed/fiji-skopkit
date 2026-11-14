@@ -16,6 +16,9 @@ op runs exactly as it does from its menu entry. An op with several outputs
 returns them by name, and they unpack in order, as a Python op's NamedTuple
 does.
 
+Another collection's ops carry its package, so a script says whose they are:
+``skop.biapy_ops.predict.bmz(imp)``, never ``skop.predict.bmz(imp)``.
+
 ``dir(skop)`` lists the namespaces and ``dir(skop.segment)`` the ops in one. A
 misspelt name or parameter raises ValueError, saying what was probably
 meant; an op that fails raises RuntimeError with the worker's message.
@@ -97,50 +100,58 @@ class Op(object):
 
 
 class Namespace(object):
-    """The ops in one namespace: ``skop.segment``."""
+    """The ops under one name: ``skop.segment``, ``skop.biapy_ops``,
+    ``skop.biapy_ops.predict``."""
 
     def __init__(self, name):
         self._name = name
 
-    def _ops(self):
-        prefix = self._name + "."
+    def _prefix(self):
+        return self._name + "." if self._name else ""
+
+    def _names(self):
+        prefix = self._prefix()
         return [name[len(prefix):] for name in _skop().names()
                 if name.startswith(prefix)]
 
     def __getattr__(self, name):
         if name.startswith("_"):
             raise AttributeError(name)
-        full = self._name + "." + name
-        if name not in self._ops():
-            _call(_skop().op, full)  # raises, suggesting the op meant
+        full = self._prefix() + name
+        names = self._names()
+        if name in names:
+            return Op(full)
+        if any(rest.startswith(name + ".") for rest in names):
+            return Namespace(full)
+        # Not here: say what was meant -- a collection's op is called with
+        # its collection's name, skop.biapy_ops.predict.bmz.
+        if not self._name:
+            owners = sorted(set(
+                other.split(".")[0] for other in _skop().names()
+                if other.count(".") >= 2
+                and other.split(".", 1)[1].startswith(name + ".")))
+            if owners:
+                raise AttributeError(
+                    "%r is a namespace of %s; call its ops with their "
+                    "collection's name: %s" % (name, " and ".join(owners),
+                    ", ".join("skop.%s.%s" % (owner, name) for owner in owners)))
+        _call(_skop().op, full)
         return Op(full)
 
     def __dir__(self):
-        return self._ops()
+        return sorted(set(rest.split(".")[0] for rest in self._names()))
 
     def __repr__(self):
-        return "<scikit-ops namespace %s: %s>" % (self._name, ", ".join(self._ops()))
+        return "<scikit-ops %s: %s>" % (self._name or "ops",
+                                        ", ".join(self.__dir__()))
 
 
-class Ops(object):
-    """Every op, by namespace: ``skop.segment.cellpose4``."""
+class Ops(Namespace):
+    """Every op: scikit-ops' own by namespace, ``skop.segment.cellpose4``;
+    another collection's after its package, ``skop.biapy_ops.predict.bmz``."""
 
-    def _namespaces(self):
-        return sorted(set(name.split(".")[0] for name in _skop().names()))
-
-    def __getattr__(self, name):
-        if name.startswith("_"):
-            raise AttributeError(name)
-        if name not in self._namespaces():
-            raise AttributeError("no scikit-ops namespace %r; there are: %s"
-                                 % (name, ", ".join(self._namespaces())))
-        return Namespace(name)
-
-    def __dir__(self):
-        return self._namespaces()
-
-    def __repr__(self):
-        return "<scikit-ops: %s>" % ", ".join(self._namespaces())
+    def __init__(self):
+        Namespace.__init__(self, "")
 
 
 skop = Ops()

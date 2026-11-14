@@ -362,11 +362,19 @@ public class SkopService extends AbstractService implements SciJavaService {
 
 	/** An op's short name, as scripts and the panel know it: segment.cellpose4. */
 	private static String shortName(String opName) {
-		String prefix = "skop.ops.";
 		int colon = opName.indexOf(':');
-		if (!opName.startsWith(prefix) || colon < 0) return opName;
-		String namespace = opName.substring(prefix.length(), colon).split("\\.")[0];
-		return namespace + "." + opName.substring(colon + 1);
+		if (colon < 0) return opName;
+		String name = OpCollection.scriptName(opName.substring(0, colon),
+			opName.substring(colon + 1));
+		return name == null ? opName : name;
+	}
+
+	/** How the Log names each environment being prepared: whose it is. */
+	private final Map<String, String> envLabels =
+		new java.util.concurrent.ConcurrentHashMap<>();
+
+	private String envLabel(String envId) {
+		return envLabels.getOrDefault(envId, OpCollection.envLabel(null, envId));
 	}
 
 	/** When each environment's preparation began, for saying how long it took. */
@@ -438,33 +446,39 @@ public class SkopService extends AbstractService implements SciJavaService {
 
 		@Override
 		public void started(String envId) {
+			started(null, envId);
+		}
+
+		@Override
+		public void started(OpCollection collection, String envId) {
 			// Said for every first use in a session, because only pixi knows
 			// whether this is a quick check or a download of gigabytes -- and
 			// "ready in 2 s" versus "ready in 140 s" afterwards says which.
 			buildStarts.put(envId, System.currentTimeMillis());
+			envLabels.put(envId, OpCollection.envLabel(collection, envId));
 			lastBuildTitle = null;
-			if (runner.isBuilt(envId)) {
-				say("scikit-ops: using the " + envId + " environment, " +
+			if (runner.isBuilt(collection, envId)) {
+				say("scikit-ops: using " + envLabel(envId) + ", " +
 					"built earlier");
 			}
 			else {
-				say("scikit-ops: building the " + envId + " environment. This " +
+				say("scikit-ops: building " + envLabel(envId) + ". This " +
 					"happens once, downloads packages, and can take several minutes.");
 				long start = buildStarts.get(envId);
 				beat = heartbeat.scheduleAtFixedRate(() -> {
 					long seconds = (System.currentTimeMillis() - start) / 1000;
 					String phase = lastBuildTitle == null ? "" : " (" + lastBuildTitle + ")";
-					say("scikit-ops:   still building the " + envId + " environment, " +
+					say("scikit-ops:   still building " + envLabel(envId) + ", " +
 						elapsed(seconds) + " so far" + phase);
 					if (status != null) {
-						status.showStatus("Building scikit-ops environment: " + envId +
+						status.showStatus("Building " + envLabel(envId) +
 							", " + elapsed(seconds));
 					}
 				}, 30, 30, java.util.concurrent.TimeUnit.SECONDS);
 			}
 			if (tasks == null) return;
 			org.scijava.task.Task task =
-				tasks.createTask("Building scikit-ops environment: " + envId);
+				tasks.createTask("Building " + envLabel(envId));
 			task.setStatusMessage("Checking " + envId);
 			task.start();
 			building.set(task);
@@ -482,12 +496,12 @@ public class SkopService extends AbstractService implements SciJavaService {
 				// Said only after a real build: a check of a built environment
 				// has already been announced, and "ready after 0 s" is noise.
 				if (seconds > 2) {
-					say("scikit-ops: the " + envId + " environment is ready, " +
+					say("scikit-ops: " + envLabel(envId) + " is ready, " +
 						"after " + elapsed(seconds));
 				}
 			}
 			else {
-				say("scikit-ops: preparing the " + envId + " environment " +
+				say("scikit-ops: preparing " + envLabel(envId) + " " +
 					"failed after " + elapsed(seconds) + ": " + error.getMessage());
 			}
 			org.scijava.task.Task task = building.getAndSet(null);
@@ -517,10 +531,19 @@ public class SkopService extends AbstractService implements SciJavaService {
 	private String treeHash() {
 		// With no checkout, the ops are whatever the recipes pin, and the
 		// unpacked directory's name is already a hash of the recipes.
-		if (runner().root() == null) return runner().envsDir().getName();
+		List<OpCollection> collections = OpCollection.configured();
+		if (runner().root() == null && collections.isEmpty()) {
+			return runner().envsDir().getName();
+		}
 		StringBuilder sb = new StringBuilder();
-		File root = new File(runner().opsRoot(), "skop");
-		collect(root, sb);
+		if (runner().root() == null) sb.append(runner().envsDir().getName()).append('\n');
+		else collect(new File(runner().opsRoot(), "skop"), sb);
+		// Another collection's ops are in the description too, so editing
+		// one, or adding a collection, describes again.
+		for (OpCollection collection : collections) {
+			sb.append(collection).append('\n');
+			collect(new File(collection.srcRoot(), collection.pkg()), sb);
+		}
 		try {
 			MessageDigest digest = MessageDigest.getInstance("SHA-1");
 			byte[] hash = digest.digest(sb.toString().getBytes(StandardCharsets.UTF_8));

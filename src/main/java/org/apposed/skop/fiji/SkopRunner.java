@@ -295,15 +295,22 @@ public class SkopRunner implements Closeable {
 	 * the end: a false "not built" costs a misleading message, nothing more.
 	 */
 	public boolean isBuilt(String envId) {
-		File dir = new File(Environments.apposeEnvsDir(), builtName(envId));
+		return isBuilt(null, envId);
+	}
+
+	/** {@link #isBuilt(String)}, for an environment of another collection. */
+	public boolean isBuilt(OpCollection collection, String envId) {
+		File dir = new File(Environments.apposeEnvsDir(), builtName(collection, envId));
 		File built = new File(dir, "pixi.toml");
 		if (!built.isFile() || !new File(dir, ".pixi").isDirectory()) return false;
 		try {
 			String was = new String(Files.readAllBytes(built.toPath()),
 				StandardCharsets.UTF_8);
-			String is = new String(Files.readAllBytes(envConfig(envId).toPath()),
+			String is = new String(Files.readAllBytes(envConfig(collection, envId).toPath()),
 				StandardCharsets.UTF_8);
-			return was.trim().equals(is.trim());
+			// Line endings aside: the Python runner writes its copy in the
+			// platform's (CRLF on Windows), whatever the recipe's own are.
+			return was.replace("\r\n", "\n").trim().equals(is.replace("\r\n", "\n").trim());
 		}
 		catch (IOException | IllegalArgumentException exc) {
 			return false;
@@ -312,10 +319,20 @@ public class SkopRunner implements Closeable {
 
 	/** The pixi.toml defining an environment. */
 	public File envConfig(String envId) {
-		File config = new File(new File(envsDir, envId), "pixi.toml");
+		return envConfig(null, envId);
+	}
+
+	/**
+	 * The pixi.toml defining an environment of a collection: its own
+	 * {@code envs/}, or skop's for a null collection.
+	 */
+	public File envConfig(OpCollection collection, String envId) {
+		File dir = collection == null ? envsDir : collection.envsDir();
+		File config = new File(new File(dir, envId), "pixi.toml");
 		if (!config.exists()) {
 			throw new IllegalArgumentException("No environment '" + envId + "' at " +
-				config + ". Known environments: " + String.join(", ", envIds()));
+				config + (collection == null ? ". Known environments: " +
+					String.join(", ", envIds()) : ""));
 		}
 		return config;
 	}
@@ -349,13 +366,23 @@ public class SkopRunner implements Closeable {
 	public Environment environment(String envId, String variant)
 		throws BuildException
 	{
-		String key = envId + "/" + variant;
+		return environment(null, envId, variant);
+	}
+
+	/**
+	 * {@link #environment(String, String)}, for an environment of another
+	 * collection, or of skop's when {@code collection} is null.
+	 */
+	public Environment environment(OpCollection collection, String envId,
+		String variant) throws BuildException
+	{
+		String key = builtName(collection, envId) + "/" + variant;
 		Environment cached = envs.get(key);
 		if (cached != null) return cached;
 
-		for (BuildListener listener : buildListeners) listener.started(envId);
+		for (BuildListener listener : buildListeners) listener.started(collection, envId);
 		try {
-			Environment built = build(envId, variant);
+			Environment built = build(collection, envId, variant);
 			envs.put(key, built);
 			for (BuildListener listener : buildListeners) {
 				listener.finished(envId, null);
@@ -374,12 +401,15 @@ public class SkopRunner implements Closeable {
 	 * What an environment is built as: {@code scikit-ops--<id>}, the name
 	 * scikit-ops' own runner gives it, so Fiji and Python share one build.
 	 */
-	private static String builtName(String envId) {
-		return "scikit-ops--" + envId;
+	private static String builtName(OpCollection collection, String envId) {
+		return collection == null ? "scikit-ops--" + envId : collection.builtName(envId);
 	}
 
-	private Environment build(String envId, String variant) throws BuildException {
-		PixiBuilder builder = Appose.pixi(envConfig(envId)).name(builtName(envId));
+	private Environment build(OpCollection collection, String envId,
+		String variant) throws BuildException
+	{
+		PixiBuilder builder = Appose.pixi(envConfig(collection, envId))
+			.name(builtName(collection, envId));
 		for (Builder.ProgressConsumer subscriber : buildProgress) {
 			builder = builder.subscribeProgress(subscriber);
 		}
@@ -401,6 +431,15 @@ public class SkopRunner implements Closeable {
 
 		/** An environment is about to be built, or confirmed already built. */
 		void started(String envId);
+
+		/**
+		 * {@link #started(String)}, saying which collection the environment
+		 * belongs to: null for scikit-ops'. What the runner calls; by default
+		 * it forgets the collection.
+		 */
+		default void started(OpCollection collection, String envId) {
+			started(envId);
+		}
 
 		/**
 		 * A build has ended.
@@ -425,7 +464,26 @@ public class SkopRunner implements Closeable {
 	public Description describe()
 		throws BuildException, InterruptedException, IOException, TaskException
 	{
-		return describe(OPS_PACKAGE);
+		List<OpCollection> collections = OpCollection.configured();
+		if (collections.isEmpty()) return describe(OPS_PACKAGE);
+		// skop's ops, then each collection's, as one description: the menu,
+		// the scripting names and the cache all read one list. Op IDs are
+		// "<module>:<function>", so two collections' ops cannot collide.
+		List<Object> ops = new ArrayList<>();
+		List<Object> failures = new ArrayList<>();
+		List<String> pkgs = new ArrayList<>();
+		pkgs.add(OPS_PACKAGE);
+		for (OpCollection collection : collections) pkgs.add(collection.pkg());
+		for (String pkg : pkgs) {
+			Map<String, Object> json = describe(pkg).toJson();
+			ops.addAll(Wire.maps(json, "ops"));
+			failures.addAll(Wire.maps(json, "failures"));
+		}
+		Map<String, Object> merged = new LinkedHashMap<>();
+		merged.put("package", OPS_PACKAGE);
+		merged.put("ops", ops);
+		merged.put("failures", failures);
+		return Description.fromJson(merged);
 	}
 
 	/**
@@ -565,8 +623,10 @@ public class SkopRunner implements Closeable {
 		inputs.put("plans", planJson);
 		// Where the worker imports the op from: a checkout's ops, or, with
 		// none, whatever the op's environment installs.
-		inputs.put("origin", opsRoot == null ? null :
-			Collections.singletonMap("root", opsRoot.getAbsolutePath()));
+		OpCollection collection = OpCollection.of(op.module());
+		File origin = collection != null ? collection.srcRoot() : opsRoot;
+		inputs.put("origin", origin == null ? null :
+			Collections.singletonMap("root", origin.getAbsolutePath()));
 
 		Service service = service(op, variant);
 		Service.Task task = service.task(call(), inputs,
@@ -591,16 +651,17 @@ public class SkopRunner implements Closeable {
 	public Service service(OpSpec op, String variant)
 		throws BuildException, InterruptedException, IOException, TaskException
 	{
-		String key = op.env() + "/" + variant + "/" +
+		OpCollection collection = OpCollection.of(op.module());
+		String key = builtName(collection, op.env()) + "/" + variant + "/" +
 			(op.exclusive() ? op.name() : "");
 		Service cached = services.get(key);
 		if (cached != null) return cached;
 
-		Service service = environment(op.env(), variant).python();
+		Service service = environment(collection, op.env(), variant).python();
 		for (BiConsumer<String, String> listener : workerListeners) {
 			listener.accept(op.name(), op.env());
 		}
-		service.init(initScript(op.env()));
+		service.init(initScript(collection, op.env()));
 		if (debug) service.debug(line -> System.out.println("[" + op.env() + "] " + line));
 		service.start();
 		services.put(key, service);
@@ -640,6 +701,12 @@ public class SkopRunner implements Closeable {
 		// describe imports the ops, so they go on the path too.
 		if (opsRoot != null) bootstrap = "import sys\nsys.path.insert(0, " +
 			pythonString(opsRoot.getAbsolutePath()) + ")\n" + bootstrap;
+		// And so do the other collections' ops. Appended, not inserted: a
+		// collection must not shadow skop or oprunner.
+		for (OpCollection collection : OpCollection.configured()) {
+			bootstrap = "import sys\n" + bootstrap + "sys.path.append(" +
+				pythonString(collection.srcRoot().getAbsolutePath()) + ")\n";
+		}
 		service.init(bootstrap);
 		if (debug) service.debug(line -> System.out.println("[metadata] " + line));
 		service.start();
@@ -670,7 +737,7 @@ public class SkopRunner implements Closeable {
 	 * The init script for an op worker: what skop says, plus whatever the
 	 * environment adds for itself.
 	 */
-	private String initScript(String envId)
+	private String initScript(OpCollection collection, String envId)
 		throws BuildException, InterruptedException, IOException, TaskException
 	{
 		constants();
@@ -678,7 +745,8 @@ public class SkopRunner implements Closeable {
 		// !r is a repr, which for a path string is a quoted Python literal.
 		String script = root == null ? withoutRoot(initScript) : initScript.replace(
 			"{root!r}", pythonString(root.getAbsolutePath()));
-		File extra = new File(new File(envsDir, envId), "init.py");
+		File extra = new File(new File(collection == null ? envsDir :
+			collection.envsDir(), envId), "init.py");
 		if (extra.exists()) {
 			script = script + "\n" + new String(
 				java.nio.file.Files.readAllBytes(extra.toPath()),

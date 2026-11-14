@@ -92,6 +92,29 @@ is what makes the boundary testable without a running Fiji.
   whole. A script can tell a failure from a user-pressed Cancel with
   `OpModule.failure()`, which SciJava's `Cancelable` alone cannot.
 
+## Other op collections
+
+Any package of ops can be a collection -- tnia-ops, biapy-ops -- and Fiji
+shows its ops beside scikit-ops' own. Fiji's host is Java, so it cannot find
+a collection through Python entry points; it is told, with
+`-Dskop.collections` or `$SKOP_COLLECTIONS`: collection checkouts, separated
+by the platform's path separator (`;` on Windows). Each holds a
+`pyproject.toml`, its package under `src/`, and `envs/<id>/pixi.toml`.
+
+A collection's ops carry its name everywhere, so the people who made them get
+the credit for them:
+
+- **Menus:** `Plugins ▸ biapy-ops ▸ Predict ▸ Bmz`.
+- **Scripts:** `skop.biapy_ops.predict.bmz(imp)`. The collection's name is
+  required: `skop.predict.bmz` is refused with a message giving the full
+  name. Two collections with a `predict.bmz` therefore never collide.
+- **The Log:** "using biapy-ops' biapy environment".
+- **Environments** are built as `<collection>--<id>`, `biapy-ops--biapy`, as
+  scikit-ops' Python runner builds them, so napari and Fiji share one build.
+
+scikit-ops' own ops keep their short names, `skop.segment.cellpose4`: `skop`
+already says whose they are.
+
 ## What it does not do yet
 
 - No environment manager, no update site.
@@ -136,7 +159,8 @@ Java 11+ and Maven:
 mvn test
 ```
 
-`AxesTest`, `WireTest`, `DocsTest` and `ModulesTest` run anywhere.
+`AxesTest`, `WireTest`, `DocsTest`, `ModulesTest` and `BrandingTest` run
+anywhere.
 `SkopRunnerTest` and `SkopServiceTest` need a scikit-ops checkout and will
 build environments -- which, the first time, means a download. The checkout is
 looked for in this order:
