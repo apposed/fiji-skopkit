@@ -386,6 +386,12 @@ public class SkopService extends AbstractService implements SciJavaService {
 	 */
 	private void say(String message) {
 		log.info(message);
+		// Note: only once imagej-legacy is up. Discovery runs on a background
+		// thread from initialize(), so this can be reached while Fiji is still
+		// starting; loading ij.IJ before imagej-legacy has patched it makes the
+		// patching fail ("No _hooks field found in ij.IJ"), the LegacyService
+		// with it, and Fiji exits at startup.
+		if (!legacyReady()) return;
 		try {
 			Class.forName("ij.IJ").getMethod("log", String.class)
 				.invoke(null, message);
@@ -393,6 +399,18 @@ public class SkopService extends AbstractService implements SciJavaService {
 		catch (ReflectiveOperationException | LinkageError e) {
 			// No ImageJ 1.x; the log will do.
 		}
+	}
+
+	/**
+	 * Whether imagej-legacy's service exists yet, and so has patched ImageJ
+	 * 1.x. Checked by class name, which loads nothing.
+	 */
+	private boolean legacyReady() {
+		for (Service service : getContext().getServiceIndex().getAll()) {
+			if (service.getClass().getName().equals(
+				"net.imagej.legacy.LegacyService")) return true;
+		}
+		return false;
 	}
 
 	/**
